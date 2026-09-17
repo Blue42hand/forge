@@ -53,17 +53,21 @@ public final class HeadlessNetworkClient implements AutoCloseable, IHasForgeLog 
             throw new IllegalStateException("Client has already been started; close it before reconnecting");
         }
 
-        connectedLatch = new CountDownLatch(1);
-        assignedSlot.set(-1);
-        lobby = new ClientGameLobby();
-        guiGame.setClientLobby(lobby);
+        final CountDownLatch thisConnectLatch = new CountDownLatch(1);
+        final ClientGameLobby thisLobby = new ClientGameLobby();
+        final FGameClient thisClient = new FGameClient(username, guiGame, hostname, port);
 
-        client = new FGameClient(username, guiGame, hostname, port);
-        client.addLobbyListener(new ClientLobbyListener());
-        client.connect();
+        connectedLatch = thisConnectLatch;
+        assignedSlot.set(-1);
+        lobby = thisLobby;
+        client = thisClient;
+        guiGame.setClientLobby(thisLobby);
+
+        thisClient.addLobbyListener(new ClientLobbyListener(thisClient, thisLobby, thisConnectLatch));
+        thisClient.connect();
 
         try {
-            final boolean success = connectedLatch.await(timeoutMs, TimeUnit.MILLISECONDS);
+            final boolean success = thisConnectLatch.await(timeoutMs, TimeUnit.MILLISECONDS);
             if (!success) {
                 netLog.error("Headless client '{}' timed out connecting to {}:{} after {}ms",
                         username, hostname, port, timeoutMs);
@@ -76,12 +80,13 @@ public final class HeadlessNetworkClient implements AutoCloseable, IHasForgeLog 
     }
 
     /**
-     * Recreate the underlying TCP client after a clean close. Forge will perform its normal
+     * Recreate the underlying TCP client after a clean close. Forge performs its normal
      * lobby/full-state synchronization; no local state is guessed or replayed by this wrapper.
      */
     public synchronized boolean reconnect(final long timeoutMs) {
         closeClient();
         client = null;
+        lobby = null;
         connected.set(false);
         assignedSlot.set(-1);
         return connect(timeoutMs);
@@ -167,11 +172,13 @@ public final class HeadlessNetworkClient implements AutoCloseable, IHasForgeLog 
     public synchronized void close() {
         closeClient();
         client = null;
+        lobby = null;
         connected.set(false);
         assignedSlot.set(-1);
     }
 
     private void closeClient() {
+        connected.set(false);
         final FGameClient currentClient = client;
         if (currentClient != null) {
             try {
@@ -182,23 +189,42 @@ public final class HeadlessNetworkClient implements AutoCloseable, IHasForgeLog 
         }
     }
 
+    /**
+     * Listener instances are bound to one concrete TCP client/lobby generation. Late channel
+     * callbacks from a closing connection are ignored after reconnect, so they cannot clear the
+     * new connection's state.
+     */
     private final class ClientLobbyListener implements ILobbyListener {
+        private final FGameClient ownerClient;
+        private final ClientGameLobby ownerLobby;
+        private final CountDownLatch ownerLatch;
+
+        private ClientLobbyListener(final FGameClient ownerClient, final ClientGameLobby ownerLobby,
+                final CountDownLatch ownerLatch) {
+            this.ownerClient = ownerClient;
+            this.ownerLobby = ownerLobby;
+            this.ownerLatch = ownerLatch;
+        }
+
+        private boolean isCurrentGeneration() {
+            return client == ownerClient && lobby == ownerLobby;
+        }
+
         @Override
         public void update(final GameLobbyData state, final int slot) {
-            final ClientGameLobby currentLobby = lobby;
-            if (currentLobby == null) {
+            if (!isCurrentGeneration()) {
                 return;
             }
-            currentLobby.setData(state);
+            ownerLobby.setData(state);
             if (slot < 0) {
                 return;
             }
 
             final int previous = assignedSlot.getAndSet(slot);
-            currentLobby.setLocalPlayer(slot);
+            ownerLobby.setLocalPlayer(slot);
             if (previous < 0) {
                 connected.set(true);
-                connectedLatch.countDown();
+                ownerLatch.countDown();
                 netLog.info("Headless client '{}' connected to {}:{} in lobby slot {}",
                         username, hostname, port, slot);
             }
@@ -206,18 +232,23 @@ public final class HeadlessNetworkClient implements AutoCloseable, IHasForgeLog 
 
         @Override
         public void message(final String source, final String message, final ChatMessage.MessageType type) {
-            netLog.info("Headless client '{}' chat from {}: {}", username, source, message);
+            if (isCurrentGeneration()) {
+                netLog.info("Headless client '{}' chat from {}: {}", username, source, message);
+            }
         }
 
         @Override
         public void close() {
+            if (!isCurrentGeneration()) {
+                return;
+            }
             connected.set(false);
             netLog.info("Headless client '{}' connection closed", username);
         }
 
         @Override
         public ClientGameLobby getLobby() {
-            return lobby;
+            return ownerLobby;
         }
     }
 }
