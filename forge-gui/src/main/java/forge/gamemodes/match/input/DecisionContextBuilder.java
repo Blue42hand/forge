@@ -2,6 +2,7 @@ package forge.gamemodes.match.input;
 
 import forge.ai.AvailableActions;
 import forge.ai.ComputerUtilMana;
+import forge.ai.PlayerControllerAi;
 import forge.card.MagicColor;
 import forge.card.mana.ManaAtom;
 import forge.game.GameEntity;
@@ -20,6 +21,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.WeakHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Converts host-side Forge input objects into a deliberately small, serializable
@@ -86,19 +88,25 @@ public final class DecisionContextBuilder {
 
         final List<Integer> autoSources = new ArrayList<>();
         boolean autoAvailable = false;
-        try {
-            final CardCollection sources = ComputerUtilMana.getManaSourcesToPayCost(
-                    new ManaCostBeingPaid(manaCost), paidFor, payer, input.effect);
-            if (sources != null) {
-                autoAvailable = true;
-                for (final Card card : sources) {
-                    autoSources.add(card.getId());
+        if (manaCost != null && paidFor != null) {
+            try {
+                final AtomicReference<CardCollection> sourceRef = new AtomicReference<>();
+                payer.runWithController(
+                        () -> sourceRef.set(ComputerUtilMana.getManaSourcesToPayCost(
+                                new ManaCostBeingPaid(manaCost), paidFor, payer, input.effect)),
+                        new PlayerControllerAi(payer.getGame(), payer, payer.getOriginalLobbyPlayer()));
+                final CardCollection sources = sourceRef.get();
+                if (sources != null) {
+                    autoAvailable = true;
+                    for (final Card card : sources) {
+                        autoSources.add(card.getId());
+                    }
                 }
+            } catch (final RuntimeException ignored) {
+                // A failed preview must not affect legality or invent a positive certificate.
+                autoAvailable = false;
+                autoSources.clear();
             }
-        } catch (final RuntimeException ignored) {
-            // A failed preview must not affect legality or invent a positive certificate.
-            autoAvailable = false;
-            autoSources.clear();
         }
 
         final Card paidForCard = paidFor == null ? null : paidFor.getHostCard();
