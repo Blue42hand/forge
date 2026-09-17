@@ -12,6 +12,7 @@ import forge.game.card.CardView;
 import forge.game.mana.ManaCostBeingPaid;
 import forge.game.player.Player;
 import forge.game.spellability.SpellAbility;
+import forge.game.zone.ZoneType;
 import forge.gamemodes.net.DecisionContext;
 import forge.player.PlayerControllerHuman;
 
@@ -86,6 +87,7 @@ public final class DecisionContextBuilder {
             }
         }
 
+        final List<Integer> directSources = buildDirectManaSources(input, payer);
         final List<Integer> autoSources = new ArrayList<>();
         boolean autoAvailable = false;
         if (manaCost != null && paidFor != null) {
@@ -120,7 +122,35 @@ public final class DecisionContextBuilder {
                 payer.getLife(),
                 input.phyLifeToLose,
                 autoSources,
+                directSources,
                 autoAvailable);
+    }
+
+    /**
+     * Certify card clicks that are safe to execute directly during InputPayMana.
+     *
+     * Desktop Forge opens a synchronous ability chooser when a selected card exposes
+     * more than one currently playable mana ability. External pilots cannot safely
+     * enter that callback after a non-idempotent card click, so only sources with one
+     * playable mana ability are published here. The second check keeps cards whose
+     * sole mana ability cannot pay any part of the current cost out of the certificate.
+     *
+     * Only zones visible to the deciding player are scanned. This intentionally does
+     * not enumerate the library or any opponent-owned hidden zone.
+     */
+    private static List<Integer> buildDirectManaSources(final InputPayMana input, final Player payer) {
+        final List<Integer> result = new ArrayList<>();
+        for (final Card card : payer.getCardsIn(
+                ZoneType.Battlefield, ZoneType.Hand, ZoneType.Graveyard, ZoneType.Exile, ZoneType.Command)) {
+            final List<SpellAbility> playable = input.getAllManaAbilities(card);
+            if (playable.size() != 1) {
+                continue;
+            }
+            if (!input.getUsefulManaAbilities(card).isEmpty()) {
+                result.add(card.getId());
+            }
+        }
+        return result;
     }
 
     private static DecisionContext.PriorityContext buildPriority(final Player player) {
