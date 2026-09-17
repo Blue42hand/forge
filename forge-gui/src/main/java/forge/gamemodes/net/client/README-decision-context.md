@@ -1,0 +1,1 @@
+Headless external pilots can read the latest host-authored `DecisionContext` from `FGameClient#getLatestDecisionContext()` or via `HeadlessDecisionContext.latest(client)`. Treat `(seat, inputToken)` as the native decision identity and `sequence` as freshness; fail closed if the token changes before a response is applied.
