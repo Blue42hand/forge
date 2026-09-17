@@ -12,7 +12,7 @@ import java.util.Map;
  */
 public final class DecisionContext implements Serializable {
     private static final long serialVersionUID = 1L;
-    public static final int SCHEMA_VERSION = 1;
+    public static final int SCHEMA_VERSION = 2;
 
     private final int schemaVersion;
     private final int seat;
@@ -76,13 +76,14 @@ public final class DecisionContext implements Serializable {
         private final int payerLife;
         private final int pendingLifePayment;
         private final List<Integer> nativeAutoSourceCardIds;
+        private final List<Integer> directManaSourceCardIds;
         private final boolean autoPaymentAvailable;
 
         public PaymentContext(final String remainingManaCost, final int paidForAbilityId,
                 final int paidForCardId, final int floatingManaTotal,
                 final Map<String, Integer> floatingManaByColor, final int payerLife,
                 final int pendingLifePayment, final List<Integer> nativeAutoSourceCardIds,
-                final boolean autoPaymentAvailable) {
+                final List<Integer> directManaSourceCardIds, final boolean autoPaymentAvailable) {
             this.remainingManaCost = remainingManaCost;
             this.paidForAbilityId = paidForAbilityId;
             this.paidForCardId = paidForCardId;
@@ -93,6 +94,8 @@ public final class DecisionContext implements Serializable {
             this.pendingLifePayment = pendingLifePayment;
             this.nativeAutoSourceCardIds = nativeAutoSourceCardIds == null
                     ? List.of() : List.copyOf(nativeAutoSourceCardIds);
+            this.directManaSourceCardIds = directManaSourceCardIds == null
+                    ? List.of() : List.copyOf(directManaSourceCardIds);
             this.autoPaymentAvailable = autoPaymentAvailable;
         }
 
@@ -104,6 +107,7 @@ public final class DecisionContext implements Serializable {
         public int getPayerLife() { return payerLife; }
         public int getPendingLifePayment() { return pendingLifePayment; }
         public List<Integer> getNativeAutoSourceCardIds() { return nativeAutoSourceCardIds; }
+        public List<Integer> getDirectManaSourceCardIds() { return directManaSourceCardIds; }
         public boolean isAutoPaymentAvailable() { return autoPaymentAvailable; }
     }
 
