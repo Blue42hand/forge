@@ -22,6 +22,8 @@ import forge.game.card.CardView;
 import forge.game.player.Player;
 import forge.game.player.PlayerView;
 import forge.game.spellability.SpellAbility;
+import forge.gamemodes.net.event.DecisionContextEvent;
+import forge.gamemodes.net.server.RemoteClientGuiGame;
 import forge.gui.FThreads;
 import forge.player.PlayerControllerHuman;
 import forge.util.ITriggerEvent;
@@ -54,6 +56,7 @@ public class InputProxy implements Observer {
 
     @Override
     public final void update(final Observable observable, final Object obj) {
+        final Input nativeInput = controller.getInputQueue().getInput();
         final Input nextInput = controller.getInputQueue().getActualInput(controller);
 /*        if(DEBUG_INPUT) 
             System.out.printf("%s ... \t%s on %s, \tstack = %s%n", 
@@ -61,6 +64,15 @@ public class InputProxy implements Observer {
                             game.getPhaseHandler().debugPrintState(), Singletons.getControl().getInputQueue().printInputStack());
 */
         input.set(nextInput);
+
+        // The normal Forge protocol intentionally exposes only GUI interaction. External pilots
+        // additionally need the exact native input identity and a few host-authoritative facts.
+        // Publish that enrichment alongside the existing GUI callbacks, never instead of them.
+        if (controller.getGui() instanceof RemoteClientGuiGame remoteGui) {
+            remoteGui.getClient().send(new DecisionContextEvent(
+                    DecisionContextBuilder.build(remoteGui.getClient().getIndex(), nativeInput, controller)));
+        }
+
         if (!(nextInput instanceof InputLockUI)) {
             controller.getGui().setCurrentPlayer(nextInput.getOwner());
         }
@@ -84,11 +96,6 @@ public class InputProxy implements Observer {
         }
     }
 
-    /**
-     * <p>
-     * selectButtonCancel.
-     * </p>
-     */
     public final void selectButtonCancel() {
         Input inp = getInput();
         if (inp != null) {
@@ -161,14 +168,12 @@ public class InputProxy implements Observer {
         }
     }
 
-    /** {@inheritDoc} */
     @Override
     public final String toString() {
         Input inp = getInput();
         return null == inp ? "(null)" : inp.toString();
     }
 
-    /** @return {@link forge.gui.InputProxy.InputBase} */
     public Input getInput() {
         return input.get();
     }
