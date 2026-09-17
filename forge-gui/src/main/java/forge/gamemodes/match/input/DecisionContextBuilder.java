@@ -48,6 +48,15 @@ public final class DecisionContextBuilder {
         }
         if (input instanceof InputPayMana payMana) {
             payment = buildPayment(payMana);
+            // NetGameController.selectCard already uses the generic card-selection
+            // controller path. Publish the certified direct mana sources through the
+            // same authoritative legal-entity envelope so a remote adapter can prove
+            // the exact card click is safe before invoking that controller method.
+            // These are action candidates, not a persisted multi-select: one source is
+            // activated per native payment decision and Forge supplies the next fresh
+            // DecisionContext after the click.
+            selection = new DecisionContext.SelectionContext(
+                    0, 1, payment.getDirectManaSourceCardIds(), List.of());
         }
         if (input instanceof InputPassPriority) {
             priority = buildPriority(controller.getPlayer());
