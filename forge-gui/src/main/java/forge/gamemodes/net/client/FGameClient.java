@@ -4,6 +4,7 @@ import com.google.common.collect.Lists;
 import forge.game.player.PlayerView;
 import forge.gamemodes.net.CompatibleObjectDecoder;
 import forge.gamemodes.net.CompatibleObjectEncoder;
+import forge.gamemodes.net.DecisionContext;
 import forge.gamemodes.net.NetworkLogConfig;
 import forge.util.IHasForgeLog;
 import forge.gamemodes.net.ReplyPool;
@@ -38,6 +39,7 @@ public class FGameClient implements IToServer, IHasForgeLog {
     private IDraftEventHandler draftHandler;
     private final ReplyPool replies = new ReplyPool();
     private volatile boolean disconnectSimulated;
+    private volatile DecisionContext latestDecisionContext;
     private Channel channel;
 
     public FGameClient(String username, IGuiGame clientGui, String hostname, int port) {
@@ -49,6 +51,10 @@ public class FGameClient implements IToServer, IHasForgeLog {
 
     public String getUsername() {
         return username;
+    }
+
+    public DecisionContext getLatestDecisionContext() {
+        return latestDecisionContext;
     }
 
     final IGuiGame getGui() {
@@ -70,7 +76,7 @@ public class FGameClient implements IToServer, IHasForgeLog {
                     final ChannelPipeline pipeline = ch.pipeline();
                     pipeline.addLast(
                             new LoggingHandler(LogLevel.INFO),
-                            new CompatibleObjectEncoder(null), // Client doesn't need byte tracking
+                            new CompatibleObjectEncoder(null),
                             new CompatibleObjectDecoder(9766*1024, ClassResolvers.cacheDisabled(null)),
                             new IdleStateHandler(0, HEARTBEAT_INTERVAL_SECONDS, 0, TimeUnit.SECONDS),
                             new MessageHandler(),
@@ -79,7 +85,6 @@ public class FGameClient implements IToServer, IHasForgeLog {
                 }
              });
 
-            // Start the connection attempt.
             channel = b.connect(this.hostname, this.port).sync().channel();
             final ChannelFuture ch = channel.closeFuture();
             new Thread(() -> {
@@ -97,6 +102,7 @@ public class FGameClient implements IToServer, IHasForgeLog {
     }
 
     public void close() {
+        latestDecisionContext = null;
         if (channel != null)
             channel.close();
         NetworkLogConfig.deactivateNetworkLogging();
@@ -123,18 +129,9 @@ public class FGameClient implements IToServer, IHasForgeLog {
         channel.writeAndFlush(encoded);
     }
 
-    /**
-     * Simulate a crashed client: stop all network writes and heartbeats
-     * while keeping the TCP connection open. The server's idle timeout
-     * will detect the silence and close the connection.
-     */
     public void simulateDisconnect() {
         netLog.info("[simulateDisconnect] Suspending all network writes.");
         disconnectSimulated = true;
-        // Remove the IdleStateHandler to stop heartbeats, and add an outbound
-        // handler that drops ALL writes (including game replies that bypass
-        // send()). The TCP connection stays open but completely silent.
-        // Both pipeline modifications run on the event loop thread for atomicity.
         channel.eventLoop().execute(() -> {
             channel.pipeline().remove(IdleStateHandler.class);
             channel.pipeline().addFirst("writeBlocker", new ChannelOutboundHandlerAdapter() {
@@ -151,10 +148,7 @@ public class FGameClient implements IToServer, IHasForgeLog {
     @Override
     public Object sendAndWait(final IdentifiableNetEvent event) {
         replies.initialize(event.getId());
-
         send(event);
-
-        // Wait for reply
         return replies.get(event.getId());
     }
 
@@ -184,6 +178,9 @@ public class FGameClient implements IToServer, IHasForgeLog {
                 for (final ILobbyListener listener : lobbyListeners) {
                     listener.message(event.getSource(), event.getMessage(), event.getType());
                 }
+            } else if (msg instanceof DecisionContextEvent event) {
+                latestDecisionContext = event.getContext();
+                return;
             }
             super.channelRead(ctx, msg);
         }
@@ -213,6 +210,7 @@ public class FGameClient implements IToServer, IHasForgeLog {
 
         @Override
         public void channelInactive(final ChannelHandlerContext ctx) throws Exception {
+            latestDecisionContext = null;
             netLog.info("[Disconnect] Channel became inactive, notifying {} listeners", lobbyListeners.size());
             netLog.info("[Disconnect] Remote address was: {}", ctx.channel().remoteAddress());
             for (final ILobbyListener listener : lobbyListeners) {
