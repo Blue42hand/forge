@@ -76,7 +76,7 @@ public class FGameClient implements IToServer, IHasForgeLog {
                     final ChannelPipeline pipeline = ch.pipeline();
                     pipeline.addLast(
                             new LoggingHandler(LogLevel.INFO),
-                            new CompatibleObjectEncoder(null), // Client doesn't need byte tracking
+                            new CompatibleObjectEncoder(null),
                             new CompatibleObjectDecoder(9766*1024, ClassResolvers.cacheDisabled(null)),
                             new IdleStateHandler(0, HEARTBEAT_INTERVAL_SECONDS, 0, TimeUnit.SECONDS),
                             new MessageHandler(),
@@ -216,7 +216,7 @@ public class FGameClient implements IToServer, IHasForgeLog {
             for (final ILobbyListener listener : lobbyListeners) {
                 listener.close();
             }
-            super.channelInactive(ctx, msg);
+            super.channelInactive(ctx);
         }
     }
 }
