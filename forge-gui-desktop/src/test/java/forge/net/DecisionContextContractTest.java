@@ -64,13 +64,14 @@ public class DecisionContextContractTest {
     public void testPaymentContextCarriesOnlyTypedSafeFacts() {
         final DecisionContext.PaymentContext payment = new DecisionContext.PaymentContext(
                 "{2}{G}", 101, 55, 2, Map.of("G", 1, "C", 1), 34, 0,
-                List.of(11, 12), true);
+                List.of(11, 12), List.of(21, 22), true);
         Assert.assertEquals(payment.getRemainingManaCost(), "{2}{G}");
         Assert.assertEquals(payment.getPaidForAbilityId(), 101);
         Assert.assertEquals(payment.getPaidForCardId(), 55);
         Assert.assertEquals(payment.getFloatingManaTotal(), 2);
         Assert.assertEquals(payment.getFloatingManaByColor().get("G"), Integer.valueOf(1));
         Assert.assertEquals(payment.getNativeAutoSourceCardIds(), List.of(11, 12));
+        Assert.assertEquals(payment.getDirectManaSourceCardIds(), List.of(21, 22));
         Assert.assertTrue(payment.isAutoPaymentAvailable());
     }
 }
